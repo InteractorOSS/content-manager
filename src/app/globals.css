@@ -1,0 +1,162 @@
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+
+    --sidebar-background: 222.2 84% 4.9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217.2 91.2% 59.8%;
+    --sidebar-primary-foreground: 222.2 84% 4.9%;
+    --sidebar-accent: 217.2 32.6% 17.5%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217.2 32.6% 17.5%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Content editor styles */
+.content-editor {
+  min-height: 400px;
+  outline: none;
+}
+
+.content-editor h1 { @apply text-3xl font-bold mb-4 mt-6; }
+.content-editor h2 { @apply text-2xl font-bold mb-3 mt-5; }
+.content-editor h3 { @apply text-xl font-semibold mb-2 mt-4; }
+.content-editor p { @apply mb-4 leading-relaxed; }
+.content-editor ul { @apply list-disc list-inside mb-4 space-y-1; }
+.content-editor ol { @apply list-decimal list-inside mb-4 space-y-1; }
+.content-editor li { @apply leading-relaxed; }
+.content-editor a { @apply text-blue-600 underline; }
+.content-editor img { @apply max-w-full h-auto rounded-lg my-4; }
+.content-editor blockquote { @apply border-l-4 border-gray-300 pl-4 italic text-gray-600 my-4; }
+.content-editor code { @apply bg-gray-100 rounded px-1 py-0.5 font-mono text-sm; }
+.content-editor pre { @apply bg-gray-100 rounded p-4 overflow-x-auto my-4; }
+.content-editor pre code { @apply bg-transparent p-0; }
+.content-editor strong { @apply font-bold; }
+.content-editor em { @apply italic; }
+
+.content-editor .two-col { @apply grid grid-cols-2 gap-4 my-4; }
+.content-editor .three-col { @apply grid grid-cols-3 gap-4 my-4; }
+
+/* Prose-like preview */
+.prose-preview { @apply max-w-none; }
+.prose-preview h1 { @apply text-3xl font-bold mb-4 mt-6; }
+.prose-preview h2 { @apply text-2xl font-bold mb-3 mt-5; }
+.prose-preview h3 { @apply text-xl font-semibold mb-2 mt-4; }
+.prose-preview p { @apply mb-4 leading-relaxed; }
+.prose-preview ul { @apply list-disc list-inside mb-4; }
+.prose-preview ol { @apply list-decimal list-inside mb-4; }
+.prose-preview a { @apply text-blue-600 underline; }
+.prose-preview img { @apply max-w-full h-auto rounded-lg my-4; }
+.prose-preview blockquote { @apply border-l-4 border-gray-300 pl-4 italic text-gray-600 my-4; }
+.prose-preview code { @apply bg-gray-100 rounded px-1 py-0.5 font-mono text-sm; }
+.prose-preview pre { @apply bg-gray-100 rounded p-4 overflow-x-auto my-4; }
+.prose-preview strong { @apply font-bold; }
+.prose-preview em { @apply italic; }
+
+/* feedback-widget.js's own floating launcher is replaced by the sidebar's
+   "Give Feedback" button (see src/components/layout/sidebar.tsx), which
+   triggers the same underlying panel by forwarding a click to this element. */
+#_iqfw-launcher { display: none !important; }
+
+/* Public blog (/blog) article body — src/app/(blog). Reading-width typography;
+   tables and lists matter here because the answer-first post template leans on
+   them (SEO-AEO-GEO-PLAN.md). */
+.prose-blog { @apply text-[17px] leading-[1.75] text-foreground; }
+.prose-blog > * + * { @apply mt-5; }
+.prose-blog h2 { @apply mt-12 mb-1 text-2xl font-bold tracking-tight scroll-mt-20; }
+.prose-blog h3 { @apply mt-8 mb-1 text-xl font-semibold scroll-mt-20; }
+.prose-blog a { @apply text-primary underline underline-offset-2 hover:opacity-80; }
+.prose-blog ul { @apply list-disc pl-6 space-y-2; }
+.prose-blog ol { @apply list-decimal pl-6 space-y-2; }
+.prose-blog li > p { @apply m-0; }
+.prose-blog strong { @apply font-semibold; }
+.prose-blog em { @apply italic; }
+.prose-blog img { @apply max-w-full h-auto rounded-lg; }
+.prose-blog blockquote { @apply border-l-4 border-border pl-4 italic text-muted-foreground; }
+.prose-blog code { @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em]; }
+.prose-blog pre { @apply overflow-x-auto rounded-lg bg-muted p-4; }
+.prose-blog pre code { @apply bg-transparent p-0; }
+.prose-blog hr { @apply my-10 border-border; }
+.prose-blog table { @apply block w-full overflow-x-auto border-collapse text-[15px]; }
+.prose-blog th { @apply border-b-2 border-border px-3 py-2 text-left font-semibold align-bottom; }
+.prose-blog td { @apply border-b border-border px-3 py-2 align-top; }
+
+/* The writer editor (/write): ProseMirror's editable surface. */
+.writer-editor .ProseMirror { outline: none; min-height: 50vh; white-space: pre-wrap; }
+.writer-editor .ProseMirror p { line-height: 1.7; }
+.writer-editor .ProseMirror ul { list-style: disc; padding-left: 1.5rem; }
+.writer-editor .ProseMirror ol { list-style: decimal; padding-left: 1.5rem; }
+
+/* Raw HTML blocks in the formatted editor (src/lib/writer-editor/html-block-view.ts):
+   a video or column layout shown as itself, with Edit HTML / Remove. */
+.writer-editor .html-embed { display: block; margin: 0.75rem 0; border: 1px solid #e5e7eb; border-radius: 0.5rem; overflow: hidden; background: #fafafa; white-space: normal; }
+.writer-editor .html-embed-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.6rem; border-bottom: 1px solid #e5e7eb; font-size: 0.75rem; color: #6b7280; background: #fff; }
+.writer-editor .html-embed-bar > span:first-child { margin-right: auto; font-weight: 500; }
+.writer-editor .html-embed-btn { border: 1px solid #d1d5db; border-radius: 0.375rem; padding: 0.1rem 0.5rem; font-size: 0.75rem; color: #374151; background: #fff; cursor: pointer; }
+.writer-editor .html-embed-btn:hover { background: #f3f4f6; }
+.writer-editor .html-embed-btn.primary { background: #111827; border-color: #111827; color: #fff; }
+.writer-editor .html-embed-video { display: block; width: 100%; max-height: 360px; object-fit: cover; margin: 0; }
+.writer-editor .html-embed-frame { display: block; width: 100%; height: 6rem; border: 0; background: #fff; }
+.writer-editor .html-embed-edit { display: block; padding: 0.5rem; }
+.writer-editor .html-embed-edit textarea { display: block; width: 100%; font: 12px/1.5 ui-monospace, monospace; border: 1px solid #d1d5db; border-radius: 0.375rem; padding: 0.5rem; background: #fff; color: #111827; }
+.writer-editor .html-embed-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.writer-editor .html-inline { font: 0.85em ui-monospace, monospace; background: #f3f4f6; border-radius: 0.25rem; padding: 0 0.25rem; color: #6b7280; }
+/* ProseMirror pads a paragraph that ends in an atom with a separator and a
+   trailing <br>; under a block embed that showed as an empty line. */
+.writer-editor .ProseMirror p:has(> .html-embed) > img.ProseMirror-separator,
+.writer-editor .ProseMirror p:has(> .html-embed) > br.ProseMirror-trailingBreak { display: none; }

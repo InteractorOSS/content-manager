@@ -1,0 +1,15 @@
+{
+  "data": {
+    "value": {
+      "uploadUrlExpiresAt": 1791450000000,
+      "uploadUrl": "https://www.linkedin.com/dms-uploads/sp/v2/D4E10AQF1first/uploaded-image/0?ca=vector_feedshare&cn=uploads&iri=B01-77&sync=0&v=beta&ut=2sb1",
+      "image": "urn:li:image:D4E10AQF1first"
+    }
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-07T09:00:01Z",
+    "latency_ms": 300,
+    "response_headers": { "content-type": "application/json", "x-restli-protocol-version": "2.0.0" }
+  }
+}

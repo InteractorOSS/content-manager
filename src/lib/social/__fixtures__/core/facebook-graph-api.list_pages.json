@@ -1,0 +1,14 @@
+{
+  "data": {
+    "data": [
+      { "id": "744751622301298", "name": "Interactor" },
+      { "id": "102938475610293", "name": "Interactor Labs" }
+    ],
+    "paging": { "cursors": { "before": "QVFIUm", "after": "QVFIUn" } }
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:00Z",
+    "latency_ms": 312
+  }
+}

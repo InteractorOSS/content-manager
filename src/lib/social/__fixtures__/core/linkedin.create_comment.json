@@ -1,0 +1,18 @@
+{
+  "data": {
+    "actor": "urn:li:organization:2414183",
+    "object": "urn:li:share:7248123456789012345",
+    "message": { "text": "Read the full post: https://interactor.com/blog/launch" },
+    "id": "7248123499999999999",
+    "$URN": "urn:li:comment:(urn:li:share:7248123456789012345,7248123499999999999)"
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:07Z",
+    "latency_ms": 488,
+    "response_headers": {
+      "X-RestLi-Id": "urn:li:comment:(urn:li:share:7248123456789012345,7248123499999999999)",
+      "Content-Type": "application/json"
+    }
+  }
+}

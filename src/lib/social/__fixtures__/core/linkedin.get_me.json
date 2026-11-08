@@ -1,0 +1,14 @@
+{
+  "data": {
+    "sub": "782bbtaQ",
+    "name": "Peter Jung",
+    "given_name": "Peter",
+    "family_name": "Jung",
+    "email_verified": true
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:02Z",
+    "latency_ms": 240
+  }
+}

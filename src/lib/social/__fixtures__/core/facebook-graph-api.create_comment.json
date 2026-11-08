@@ -1,0 +1,13 @@
+{
+  "data": {
+    "id": "122150000000000010_1234567890123456"
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:08Z",
+    "latency_ms": 302,
+    "response_headers": {
+      "content-type": "application/json; charset=UTF-8"
+    }
+  }
+}

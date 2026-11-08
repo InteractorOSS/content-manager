@@ -1,0 +1,51 @@
+name: CI
+
+# Gates every PR (and every push to a non-main branch) on the three checks we
+# require before merge: typecheck, lint, and tests. Runs each as a separate
+# step so a failure names which gate broke. Deliberately does NOT trigger on
+# push to main — deploy-production.yml already runs there, and the merge that
+# lands on main was already gated by this workflow on its PR, so re-running
+# here would only duplicate work alongside the deploy.
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+# Cancel superseded runs for the same commit/PR. Keyed on the head ref (the
+# branch name) rather than github.ref so the `pull_request` run (github.ref =
+# refs/pull/N/merge) and the `push` run (github.ref = refs/heads/<branch>) for
+# the same branch share one group and the newer cancels the older — a PR
+# branch is checked once, not twice. github.head_ref is set only for
+# pull_request events; on push it's empty, so fall back to github.ref.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20.20.2"
+          cache: npm
+
+      - run: npm ci
+
+      # Generate the Prisma client so typecheck/test can import from
+      # @prisma/client. Mirrors deploy-production.yml: a placeholder
+      # DATABASE_URL is enough — nothing here connects to a real DB, and the
+      # seed unit tests are pure (no Postgres/Account Server required).
+      - run: npx prisma generate
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm test

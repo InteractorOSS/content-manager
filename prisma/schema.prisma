@@ -1,0 +1,1215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy spine (SMM-CONSOLIDATION-PUNCHLIST T1). Organization is the single
+// tenant boundary (D1: org-only, no Workspace level); Membership links a
+// global User identity to an Organization with a per-org role. organization_id
+// on the scoped models below is NOT NULL (T4b): every write path now stamps it
+// — authenticated handlers through the tenant-scoped client (src/lib/tenant-db.ts,
+// which injects it and so does NOT require call sites to pass it), and the
+// public form POSTs pinned to the Interactor org. The relation cascades on org
+// delete. T2 created the single "Interactor" org and backfilled every existing
+// row into it; T4b's migration flips the column to NOT NULL after a defensive
+// re-backfill.
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  publicId    String   @unique @default(cuid())
+  logo        String?
+  branding    Json?
+  // Person/Organization `sameAs` for the resolved `seo` block's JSON-LD
+  // (G#33): canonical profile URLs (company site, LinkedIn, X, …) tying the
+  // Organization node to one real entity across the web.
+  same_as     String[] @default([])
+  inserted_at DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  memberships              Membership[]
+  posts                    Post[]
+  categories               Category[]
+  content_types            ContentType[]
+  sites                    Site[]
+  media                    Media[]
+  invitations              Invitation[]
+  contact_submissions      ContactSubmission[]
+  newsletter_subscriptions NewsletterSubscription[]
+  waitlist_entries         Waitlist[]
+  social_channels          SocialChannel[]
+  social_campaigns         SocialCampaign[]
+  social_posts             SocialPost[]
+  style_profiles           StyleProfile[]
+  generation_jobs          GenerationJob[]
+  feedback_entries         Feedback[]
+  faqs                     Faq[]
+  faq_intake_logs          FaqIntakeLog[]
+  api_tokens               ApiToken[]
+  post_edit_keys           PostEditKey[]
+  post_browse_keys         PostBrowseKey[]
+  deleted_posts            DeletedPost[]
+  post_slug_history        PostSlugHistory[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id              String       @id @default(cuid())
+  user_id         String
+  user            User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  role            String // owner | admin | editor | reviewer | author | guest_author
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@unique([organization_id, user_id])
+  @@map("memberships")
+}
+
+model Post {
+  id                      String                     @id @default(cuid())
+  organization_id         String
+  organization            Organization               @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  title                   String                     @default("")
+  slug                    String
+  content                 String?
+  // Rendered + sanitized HTML cache of `content` when content_format is
+  // markdown, computed on write (see src/lib/markdown.ts) so reads never
+  // render at request time. For content_format "html" this mirrors
+  // `content` verbatim, so consumers can always read content_html.
+  content_html            String?
+  // sha256 of `content`, the optimistic-concurrency handle for file-based
+  // sync (see FILE-BASED-CONTENT-PLAN.md) — detects a stale import before
+  // it silently overwrites a newer edit.
+  content_hash            String?
+  // Two-way git sync (FILE-BASED-CONTENT-PLAN.md Phase 2): content_hash at
+  // the last successful outbound push or inbound ingest — a post needs
+  // pushing when content_hash != last_synced_hash. sync_conflict is set by
+  // the inbound webhook when a push arrives whose base hash no longer
+  // matches (someone edited in the CMS since); the CMS version wins and
+  // stays, a human resolves via the "needs merge" UI.
+  last_synced_hash        String?
+  sync_conflict           Boolean                    @default(false)
+  excerpt                 String?
+  status                  String                     @default("draft")
+  // Content type: a free-form token, NOT an enum. Resolved for display against
+  // the org's ContentType registry, but deliberately NOT a foreign key — an
+  // import from a file must never fail because the org hasn't registered that
+  // type yet (see G#19 and src/lib/content-types.ts).
+  type                    String                     @default("blog")
+  featured_image          String?
+  featured_image_alt      String?
+  featured_image_metadata Json?
+  meta_description        String?
+  meta_keywords           String?
+  // SEO data model (G#31, SEO-AEO-GEO-PLAN.md Layer A). Every field below is
+  // an override: absent means "use the plain editorial field it stands next
+  // to," resolved by whoever builds the per-site `seo` block (Layer C), not
+  // here. `null`/empty is indistinguishable from "not set" on purpose — an
+  // override that reads the same as absence is safe to clear without a
+  // separate "unset" affordance.
+  seo_title               String? // falls back to `title`
+  canonical_url           String? // falls back to this post's own URL on the requesting site; set to point a syndicated copy at the original
+  og_image                String? // falls back to `featured_image`
+  og_image_alt            String? // falls back to `featured_image_alt`
+  noindex                 Boolean                    @default(false)
+  // A short, self-contained answer (40-60 words) a reader — or an AI answer
+  // engine — gets without reading the rest of the post. The TL;DR source.
+  answer_summary          String?
+  // When this post's CONTENT was last substantively revised, as opposed to
+  // `updated_at`, which any write bumps (a tag edit, a workflow transition, a
+  // sync touch). This is the one a page may show as a visible "Updated
+  // <date>" and put in JSON-LD `dateModified` without lying — see
+  // postContentChanged in src/lib/post-revisions.ts, which decides
+  // "substantive," and the `mark_updated` request field, which lets a caller
+  // say so explicitly for an edit that function can't see (a rewritten intro
+  // with no title/content/excerpt/content_format change is impossible, but a
+  // materially corrected number inside otherwise-unchanged prose is not).
+  content_updated_at      DateTime?
+  // Free text an author types into the CMS: this slug/post has moved, send
+  // readers to this destination instead. UNTRUSTED — see the doc comment on
+  // Post in packages/cms-client/src/types.ts (website repo) for the full
+  // contract a consuming site must enforce before redirecting to it.
+  redirect_to             String?
+  author_name             String?
+  author_id               String?
+  author                  User?                      @relation("PostAuthor", fields: [author_id], references: [id])
+  // Who last wrote this row (any write path: CMS PUT, import, resolve-conflict)
+  // — distinct from author_id, which never changes after creation. This is
+  // what a 409 optimistic-concurrency conflict reports as "who edited it".
+  updated_by_name         String?
+  updated_by_id           String?
+  updated_by              User?                      @relation("PostLastEditor", fields: [updated_by_id], references: [id])
+  published_at            DateTime?
+  reading_time            Int?
+  tags                    String[]
+  // Draft preview links (goal G#13): expiry of the post's single active
+  // signed preview link, or null when none is live. A visitor's token embeds
+  // this same timestamp (see src/lib/preview-link.ts), so clearing/replacing
+  // it invalidates every previously issued token immediately — no separate
+  // revocation list needed. Not exposed on the public API.
+  preview_token_expires_at DateTime?
+  // Distribution targets: which consuming sites surface this post. Resolved
+  // for display against the org's Site registry (G#18, src/lib/sites.ts) but
+  // deliberately NOT a foreign key — an array is what lets one post target
+  // several sites at once, and an import must never fail because the org
+  // hasn't registered that site yet. Orthogonal to category/tags, which stay
+  // purely editorial.
+  platforms               String[]                   @default(["website"])
+  content_format          String                     @default("markdown")
+  content_styles          String?
+  original_filename       String?
+  // Free-form per-content-type frontmatter, preserved verbatim (G#19). Any key
+  // a `.md` file carries that isn't a Post column lands here instead of being
+  // silently stripped, and is re-emitted on export. Bounded on write — see
+  // METADATA_MAX_* in src/lib/post-frontmatter.ts. Inside content_hash, so a
+  // metadata-only edit still counts as a change the git mirror must sync.
+  metadata                Json?
+  workflow_status         String                     @default("draft") // draft | pending_review | approved | rejected
+  rejection_reason        String?
+  approved_at             DateTime?
+  approved_by_id          String?
+  approved_by             User?                      @relation("PostApprover", fields: [approved_by_id], references: [id])
+  category_id             String?
+  category                Category?                  @relation(fields: [category_id], references: [id])
+  approvals               ContentApproval[]
+  // Where THIS post's social copy goes, when the writer chose differently
+  // from the channels' own defaults: an array of SocialChannel ids. Null means
+  // "wherever the channels say" (SocialChannel.default_target), so connecting
+  // a new channel later reaches posts that never overrode anything.
+  social_destinations     Json?
+  social_posts            SocialPost[]               @relation("SocialPostSource")
+  // Continuous learning (Phase D): which style profile produced the current
+  // content and a snapshot of that generated content to diff against the
+  // author's edits once the post is approved/published. Cleared after the
+  // diff runs so a later re-publish doesn't re-propose the same amendment.
+  ai_style_profile_id     String?
+  ai_style_profile        StyleProfile?              @relation("PostAiProfile", fields: [ai_style_profile_id], references: [id], onDelete: SetNull)
+  ai_generated_content    String?
+  ai_generated_at         DateTime?
+  guide_suggestions       GuideAmendmentSuggestion[]
+  comments                Comment[]
+  revisions               PostRevision[]
+  edit_keys               PostEditKey[]
+  slug_history            PostSlugHistory[]
+  inserted_at             DateTime                   @default(now())
+  updated_at              DateTime                   @updatedAt
+
+  @@unique([organization_id, slug])
+}
+
+// Every slug this post has ever been saved under, besides its current one
+// (G#31): written automatically when an update changes `Post.slug`, so the
+// public API can answer an old URL with a redirect instead of a 404 — see
+// resolvePostBySlugOrHistory in src/lib/public-post.ts. `old_slug` is unique
+// per org so the lookup is a direct index hit, same shape as Post's own
+// `[organization_id, slug]`; on a slug's second retirement (freed by one post,
+// later retired again by another) the existing row's `post_id` is repointed
+// rather than duplicated, so the redirect always names whoever most recently
+// held that slug.
+model PostSlugHistory {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  post_id         String
+  post            Post         @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  old_slug        String
+  inserted_at     DateTime     @default(now())
+
+  @@unique([organization_id, old_slug])
+  @@index([post_id])
+  @@map("post_slug_history")
+}
+
+// Post revision history (G#12): a pre-write snapshot taken on every
+// content-changing write path (CMS PUT, file-based sync ingest, restore
+// itself), so a bad rewrite — by a human in the editor or by an LLM over the
+// MCP update_post tool — is always recoverable. Mirrors FaqRevision (below)
+// but snapshots more: title/content_format/content_html/content_hash/excerpt
+// in addition to content, plus a `source` discriminator so the History panel
+// can say who/what made each past version. No organization_id of its own —
+// scoped via the parent Post FK, same as FaqRevision (see tenant-db.ts).
+// Retention: see "Post revision retention" in CLAUDE.md.
+model PostRevision {
+  id             String   @id @default(cuid())
+  post_id        String
+  post           Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  title          String
+  content        String?
+  content_format String
+  content_html   String?
+  excerpt        String?
+  content_hash   String?
+  edited_by_id   String?
+  edited_by      User?    @relation("PostRevisionEditor", fields: [edited_by_id], references: [id])
+  // cms_ui | api | mcp | import | restore | writing | checkpoint — see
+  // src/lib/post-revisions.ts
+  source         String
+  // Set on an explicit checkpoint ("Before rewriting the intro"). Labelled
+  // revisions are exempt from age-based thinning (pruneOldRevisions).
+  label          String?
+  inserted_at    DateTime @default(now())
+
+  @@index([post_id, inserted_at])
+  @@map("post_revisions")
+}
+
+// Public blog comments (distinct from ContentApproval's internal
+// editorial review comments). Anonymous name+email submission, no
+// nesting/replies — a deliberate simplification, not a port of any prior
+// system's schema (this CMS never had a comments feature before). Every
+// new comment lands as "pending"; nothing is auto-published, since there's
+// no login gate here to deter spam (the consuming site's spam-guard runs
+// before a comment ever reaches this API, but defense in depth: a human
+// still approves before it's public).
+model Comment {
+  id           String   @id @default(cuid())
+  post_id      String
+  post         Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  author_name  String
+  author_email String
+  content      String
+  status       String   @default("pending") // pending | published | spam | rejected
+  ip_address   String?
+  user_agent   String?
+  inserted_at  DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([post_id, status])
+}
+
+model User {
+  id                       String                  @id @default(cuid())
+  email                    String                  @unique
+  name                     String?
+  // The name this person chose for their public byline. Unlike `name` (which
+  // provisionUser refreshes from the SSO profile on every sign-in, and which
+  // falls back to preferred_username / the email local-part when the profile
+  // carries no real name), nothing but the person themselves writes this.
+  // Read it through authorDisplayName() in src/lib/rbac.ts, never directly.
+  display_name             String?
+  external_id              String?                 @unique // admin id on auth.interactor.com
+  status                   String                  @default("active") // active | inactive | suspended
+  avatar_url               String?
+  bio                      String?
+  // Author-as-entity fields (G#31, SEO-AEO-GEO-PLAN.md Layer A: E-E-A-T for
+  // search, entity clarity for AI answer engines). `author_slug` is this
+  // person's public byline page path (e.g. /author/<slug> on a consuming
+  // site) — global, not per-org, because one person's identity here is one
+  // page regardless of which org's posts they wrote; unset means this
+  // person has no public author page yet. `same_as` is the Person JSON-LD
+  // `sameAs` list: canonical profile URLs (their site, LinkedIn, X, …) that
+  // let engines tie one byline to one real identity across the web.
+  author_slug              String?                 @unique
+  job_title                String?
+  same_as                  String[]                @default([])
+  // Org switcher target (SMM-CONSOLIDATION-PUNCHLIST T3): which of the user's
+  // memberships is currently active. Null falls back to their sole/first
+  // membership in loadActor. No FK — an org deletion just re-resolves the
+  // fallback rather than cascading into the user row.
+  current_organization_id  String?
+  last_login_at            DateTime?
+  inserted_at              DateTime                @default(now())
+  updated_at               DateTime                @updatedAt
+  roles                    UserRole[]
+  posts                    Post[]                  @relation("PostAuthor")
+  approved_posts           Post[]                  @relation("PostApprover")
+  last_edited_posts        Post[]                  @relation("PostLastEditor")
+  reviews                  ContentApproval[]       @relation("ApprovalReviewer")
+  invitations              Invitation[]            @relation("InvitedBy")
+  social_channels          SocialChannel[]         @relation("ChannelConnector")
+  content_sync_connections ContentSyncConnection[] @relation("ContentSyncConnector")
+  social_posts             SocialPost[]            @relation("SocialPostAuthor")
+  approved_social_posts    SocialPost[]            @relation("SocialPostApprover")
+  social_reviews           SocialPostApproval[]    @relation("SocialApprovalReviewer")
+  feedback_submissions     Feedback[]              @relation("FeedbackSubmitter")
+  api_tokens               ApiToken[]
+  memberships              Membership[]
+  faq_revisions            FaqRevision[]           @relation("FaqRevisionEditor")
+  post_revisions           PostRevision[]          @relation("PostRevisionEditor")
+  post_edit_keys           PostEditKey[]
+  post_browse_keys         PostBrowseKey[]
+  linked_connections       ApiTokenAccount[]
+
+  @@map("users")
+}
+
+// Personal access tokens — non-browser auth for desktop/CLI file sync (see
+// FILE-BASED-CONTENT-PLAN.md Phase 1). Carries the owning user's RBAC
+// unchanged; never stores the raw token, only its hash.
+model ApiToken {
+  id      String @id @default(cuid())
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  // The tenant this token acts on, fixed when the token is minted. A user can
+  // belong to several organizations at once (an employer, a personal blog, a
+  // family project), and a bearer token carries no session to say which one it
+  // means. Without this column the org was inferred per request — preferring
+  // User.current_organization_id, which nothing in the app ever writes, then
+  // falling back to an unordered memberships[0] — so the tenant a token wrote
+  // to was effectively arbitrary and could change between requests. Binding it
+  // here makes each token answer for exactly one organization, and lets the
+  // token list, /api/me and the MCP `whoami` tool say which one that is.
+  //
+  // Nullable only to carry pre-binding rows through the migration; the guard
+  // refuses an unbound token, so a NULL here is a dead token, not a wildcard.
+  organization_id String?
+  organization    Organization? @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Optional site scope (G#21): if non-empty, this token may only act on posts
+  // targeting these site slugs (rules in src/lib/token-site-scope.ts). Empty
+  // (the default) means every site in the org — the pre-G#21 behaviour. Slugs
+  // are validated against the org's sites (orgSiteSlugs) at mint and never
+  // re-validated: a deleted site leaves a scope that reaches nothing rather
+  // than silently widening to all sites. Set at mint, immutable afterwards.
+  site_scopes String[] @default([])
+
+  name         String
+  token_prefix String // first 12 chars of the raw token, for UI identification
+  token_hash   String    @unique // sha256 of the full raw token
+  last_used_at DateTime?
+  expires_at   DateTime?
+  revoked_at   DateTime?
+  inserted_at  DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  // Set only on a token issued through the OAuth connector flow
+  // (src/lib/oauth/*) rather than minted by hand at /settings/tokens. Such a
+  // row IS the connection: the access token (token_hash) is short-lived and
+  // rotates in place on every refresh, together with refresh_token_hash, so
+  // one Claude connection stays one row in the token list for its whole life
+  // and revoking that row disconnects it. Everything downstream — the guard,
+  // org binding, site scopes, whoami — treats it exactly like a PAT.
+  oauth_client_id    String?
+  oauth_client       OAuthClient? @relation(fields: [oauth_client_id], references: [id], onDelete: Cascade)
+  refresh_token_hash String?      @unique
+  refresh_expires_at DateTime?
+
+  post_edit_keys     PostEditKey[]
+  post_browse_keys   PostBrowseKey[]
+
+  // A workspace connection (src/lib/workspaces.ts): not bound to one
+  // organization. Each request names the account, organization and site it
+  // acts in (a "workspace"), and may reach any organization the owner or a
+  // linked account belongs to. organization_id is NULL for these.
+  all_organizations  Boolean      @default(false)
+  // Other CMS accounts the owner added to this connection on the consent page
+  // (signing in as each), so one connection covers all of a person's accounts.
+  linked_accounts    ApiTokenAccount[]
+
+  @@index([organization_id])
+  @@index([oauth_client_id])
+  @@map("api_tokens")
+}
+
+// An extra account on a workspace connection (see ApiToken.all_organizations).
+model ApiTokenAccount {
+  id           String   @id @default(cuid())
+  api_token_id String
+  api_token    ApiToken @relation(fields: [api_token_id], references: [id], onDelete: Cascade)
+  user_id      String
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  inserted_at  DateTime @default(now())
+
+  @@unique([api_token_id, user_id])
+  @@map("api_token_accounts")
+}
+
+// A one-post, short-lived edit key (the Interactor Writing plugin's live
+// sync). Minted through `open_for_editing` by someone already signed in to the
+// CMS connector, and handed to the local sync tool, which cannot read the
+// connector's own OAuth token. Deliberately NOT an ApiToken: it authenticates
+// only /api/edit/* and only for this one post, can't mint anything, and dies
+// with the token that minted it (FK cascade + a live check on every request),
+// so revoking the Claude connection ends every edit session it opened. See
+// src/lib/post-edit-keys.ts.
+model PostEditKey {
+  id              String       @id @default(cuid())
+  post_id         String
+  post            Post         @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user_id         String
+  user            User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  // The token (PAT or connector connection) that minted this key; NULL when a
+  // browser session minted it.
+  api_token_id    String?
+  api_token       ApiToken?    @relation(fields: [api_token_id], references: [id], onDelete: Cascade)
+  // Copied from the minting token so the key can never do more than it could.
+  site_scopes     String[]     @default([])
+  key_hash        String       @unique
+  expires_at      DateTime
+  revoked_at      DateTime?
+  last_used_at    DateTime?
+  // When this session last SAVED the post. Drives revision checkpoints: the
+  // first save of a session, or one after a pause, snapshots the post; saves
+  // in between don't (a writing session is hundreds of saves).
+  last_write_at   DateTime?
+  // How this session was opened: "connection" (Claude's open_for_editing),
+  // "browser" (a /write?post= link with the CMS sign-in) or "list" (a click in
+  // the /write/posts list). Reopening replaces only the same connection's
+  // session of the same source, so opening a post from the list never cuts
+  // off the sync Claude runs for it.
+  source          String       @default("connection")
+  inserted_at     DateTime     @default(now())
+
+  @@index([post_id, user_id])
+  @@map("post_edit_keys")
+}
+
+// A short-lived key for the writer's post list (/write/posts), minted by the
+// open_post_list MCP tool so Claude can put the list in the app's browser
+// panel: clicks inside the panel stay there, unlike links in the chat. It
+// lists the organization's posts (narrowed to `site`, and to the minting
+// token's own site scope) and opens them in the editor by minting ordinary
+// edit keys, nothing else. Same limits as an edit key: /api/edit/* only, 8
+// hours, dies with the token that minted it, permissions re-read per request.
+// See src/lib/post-browse-keys.ts.
+model PostBrowseKey {
+  id              String       @id @default(cuid())
+  user_id         String
+  user            User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  api_token_id    String?
+  api_token       ApiToken?    @relation(fields: [api_token_id], references: [id], onDelete: Cascade)
+  site_scopes     String[]     @default([])
+  // The site the list shows (a folder's binding); null = every site in scope.
+  site            String?
+  key_hash        String       @unique
+  expires_at      DateTime
+  revoked_at      DateTime?
+  last_used_at    DateTime?
+  inserted_at     DateTime     @default(now())
+
+  @@index([user_id, organization_id])
+  @@map("post_browse_keys")
+}
+
+// The trash (src/lib/post-trash.ts). Deleting a post moves a snapshot of its
+// row here and then deletes the post, so every read path that queries posts
+// stays exactly as it was (no deleted_at filter to forget), the slug is free
+// again at once, and a deleted post can still be found and restored for
+// TRASH_RETENTION_DAYS. Comments, approvals and revision history are not kept.
+model DeletedPost {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  // The deleted post's own id, reused on restore when it is still free.
+  post_id         String
+  title           String
+  slug            String
+  status          String
+  platforms       String[]
+  // Every column of the post row, as JSON, for restore.
+  snapshot        Json
+  deleted_by_id   String?
+  deleted_by_name String?
+  deleted_at      DateTime     @default(now())
+
+  @@index([organization_id, deleted_at])
+  @@map("deleted_posts")
+}
+
+// An OAuth client registered through dynamic client registration
+// (POST /api/oauth/register, RFC 7591) — e.g. Claude's custom connector or
+// Claude Code. Registration is open by design (that is what lets a user add
+// the connector by pasting a URL); a client grants nothing by existing, since
+// every token still needs a signed-in member to approve it on the consent page.
+model OAuthClient {
+  id                         String   @id @default(cuid())
+  client_id                  String   @unique
+  // sha256 of the secret, only for clients that registered a secret-based
+  // token_endpoint_auth_method; public clients ("none") rely on PKCE alone.
+  client_secret_hash         String?
+  client_name                String
+  redirect_uris              String[]
+  token_endpoint_auth_method String   @default("none")
+  inserted_at                DateTime @default(now())
+
+  api_tokens          ApiToken[]
+  authorization_codes OAuthAuthorizationCode[]
+
+  @@map("oauth_clients")
+}
+
+// A single-use authorization code (10-minute life), holding everything the
+// member chose on the consent page so the token endpoint never has to ask.
+model OAuthAuthorizationCode {
+  id              String      @id @default(cuid())
+  code_hash       String      @unique
+  client_id       String
+  client          OAuthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  user_id         String
+  // NULL for a workspace connection (all_organizations).
+  organization_id String?
+  all_organizations Boolean   @default(false)
+  // Other accounts added on the consent page (see ApiTokenAccount).
+  linked_user_ids String[]    @default([])
+  site_scopes     String[]    @default([])
+  redirect_uri    String
+  code_challenge  String
+  scope           String?
+  expires_at      DateTime
+  used_at         DateTime?
+  inserted_at     DateTime    @default(now())
+
+  @@index([client_id])
+  @@map("oauth_authorization_codes")
+}
+
+model Role {
+  id           String           @id @default(cuid())
+  name         String           @unique // super_admin | admin | editor | reviewer | author | guest_author
+  display_name String
+  description  String?
+  priority     Int              @default(100) // lower = more privileged
+  active       Boolean          @default(true)
+  inserted_at  DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+  users        UserRole[]
+  permissions  RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id           String           @id @default(cuid())
+  name         String           @unique // e.g. content:publish, users:manage_roles
+  display_name String
+  description  String?
+  category     String?
+  inserted_at  DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+  roles        RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  user_id     String
+  role_id     String
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role        Role     @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  inserted_at DateTime @default(now())
+
+  @@id([user_id, role_id])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  role_id       String
+  permission_id String
+  role          Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission    Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+  inserted_at   DateTime   @default(now())
+
+  @@id([role_id, permission_id])
+  @@map("roles_permissions")
+}
+
+model Invitation {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  email           String
+  name            String?
+  role_name       String       @default("author")
+  status          String       @default("pending") // pending | accepted | expired | revoked
+  token           String       @unique
+  expires_at      DateTime
+  accepted_at     DateTime?
+  last_sent_at    DateTime?
+  notes           String?
+  external_id     String?
+  invited_by_id   String?
+  invited_by      User?        @relation("InvitedBy", fields: [invited_by_id], references: [id])
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@unique([organization_id, email])
+  @@map("invitations")
+}
+
+model ContentApproval {
+  id          String   @id @default(cuid())
+  post_id     String
+  post        Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  reviewer_id String?
+  reviewer    User?    @relation("ApprovalReviewer", fields: [reviewer_id], references: [id])
+  action      String // approved | rejected | requested_changes
+  comments    String?
+  reviewed_at DateTime @default(now())
+  inserted_at DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("content_approvals")
+}
+
+model Category {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  name            String
+  slug            String
+  description     String?
+  color           String?
+  sort_order      Int          @default(0)
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  posts           Post[]
+
+  @@unique([organization_id, name])
+  @@unique([organization_id, slug])
+}
+
+// The org's content-type registry (G#19) — what the editor offers in its type
+// control, so a new content type is a row here rather than a new Prisma model,
+// a new API surface, and a new pair of MCP tools.
+//
+// Deliberately NOT referenced by a FK from Post.type. The registry exists for
+// discoverability (what can I pick?), not enforcement: a `.md` file or an MCP
+// client may carry a type this org hasn't registered, and dropping that import
+// on the floor would recreate the closed-enum failure this replaces. Unknown
+// types render as themselves and can be adopted into the registry after the fact.
+model ContentType {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  // Matches Post.type — lowercase kebab token (contentTypeSchema).
+  slug            String
+  name            String
+  description     String?
+  sort_order      Int          @default(0)
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@unique([organization_id, slug])
+  @@unique([organization_id, name])
+  @@map("content_types")
+}
+
+// A distribution target — one consuming site that can surface a post (G#18).
+// Replaces the hardcoded allowlist that used to live in src/lib/platforms.ts,
+// so an org can add its own site without a deploy.
+//
+// Deliberately mirrors ContentType above: same org-scoped registry shape, and
+// the same DISCOVERABILITY-not-enforcement contract. `Post.platforms` stays a
+// `String[]` of slugs with no FK to these rows — that array is what keeps a
+// post targetable at SEVERAL sites at once, which a join to a single Site row
+// could not express, and it is what the public `?platform=` filter matches on.
+// Because nothing here is a foreign key, the built-in slugs need no seed rows
+// and no backfill: BUILT_IN_SITES in src/lib/sites.ts supplies them virtually
+// and mergeSites() folds in any slug already in use, so no existing post can
+// change visibility when this lands.
+model Site {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  // Matches a Post.platforms entry — lowercase kebab token (siteSlugSchema).
+  slug            String
+  name            String
+  description     String?
+  // The site's base URL (e.g. https://example.com), used to build the
+  // per-site RSS feed and sitemap: <link>/<loc> = `${url}/${post.slug}`.
+  // NOT NULL — a site with nothing to link to isn't meaningfully
+  // registered. See migration 20260912180000_add_site_url for how existing
+  // rows were backfilled.
+  url             String
+  sort_order      Int          @default(0)
+  // Resolved `seo` block publisher identity (G#33, SEO-AEO-GEO-PLAN.md Layer
+  // C): the Organization schema.org node the site's posts are published
+  // under. `publisher_name` falls back to `name`; `logo_url` falls back to
+  // the org's `logo`. Per-site rather than per-org because one org's blog and
+  // its partner-embedded copy can legitimately want different bylines.
+  publisher_name  String?
+  logo_url        String?
+  // IndexNow verification key (G#34, SEO-AEO-GEO-PLAN.md Layer D): Bing's
+  // IndexNow protocol requires the consuming site to host this exact string
+  // at `${url}/<key>.txt` before a ping naming that key is trusted — the CMS
+  // cannot host that file itself (it lives on the SITE's own domain), so the
+  // key only round-trips through the public API for the consuming site's own
+  // route to read and serve verbatim. Auto-generated on site creation and
+  // lazily backfilled the first time the public endpoint is read for a site
+  // that predates this column, so an org never has to notice this exists to
+  // get a working key — see src/lib/indexnow.ts.
+  indexnow_key    String?
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@unique([organization_id, slug])
+  @@unique([organization_id, name])
+  @@map("sites")
+}
+
+model Faq {
+  id                String        @id @default(cuid())
+  organization_id   String
+  organization      Organization  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  // Human-readable key (e.g. "self-hosting-cloud-cost") — this IS the "id"
+  // the public API's GET /api/public/faq/[id] route and /faq#<id> website
+  // anchors mean; the cuid `id` above stays internal/relational only.
+  slug              String
+  question          String
+  answer            String // markdown; may contain {{facts.<key>}} tokens resolved at render time
+  category          String // pricing | self-hosting | security | hosted-fleet | ci | billing
+  audience          String        @default("sales-only") // public | sales-only
+  status            String        @default("draft") // draft | review | published
+  last_verified     DateTime?
+  verify_every_days Int           @default(365)
+  sources           String[]      @default([])
+  related           String[]      @default([]) // slugs of other Faq entries
+  asked_count       Int           @default(0)
+  revisions         FaqRevision[]
+  inserted_at       DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+
+  @@unique([organization_id, slug])
+  @@map("faqs")
+}
+
+model FaqRevision {
+  id           String   @id @default(cuid())
+  faq_id       String
+  faq          Faq      @relation(fields: [faq_id], references: [id], onDelete: Cascade)
+  answer       String
+  edited_by_id String?
+  edited_by    User?    @relation("FaqRevisionEditor", fields: [edited_by_id], references: [id])
+  inserted_at  DateTime @default(now())
+
+  @@map("faq_revisions")
+}
+
+// CMS G#8 (FAQ intake automation). One row per inbound question the intake
+// pipeline processed — every match AND every no-match, so "what can we not
+// answer yet" is a query, not a grep of logs. Also doubles as the rate-limit
+// counter: count today's rows with outcome="drafted" before creating a new
+// draft.
+model FaqIntakeLog {
+  id              String   @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  question        String
+  outcome         String // matched | drafted | rate_limited
+  matched_faq_id  String?
+  confidence      Float?
+  created_faq_id  String?
+  inserted_at     DateTime @default(now())
+
+  @@map("faq_intake_logs")
+}
+
+model Media {
+  id                String       @id @default(cuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  filename          String
+  original_filename String
+  file_path         String
+  file_size         Int
+  mime_type         String
+  alt_text          String?
+  caption           String?
+  width             Int?
+  height            Int?
+  uploaded_by       String?
+  inserted_at       DateTime     @default(now())
+  updated_at        DateTime     @updatedAt
+}
+
+model ContactSubmission {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  firstName       String
+  lastName        String
+  email           String
+  company         String?
+  jobTitle        String?
+  phone           String?
+  productInterest String?
+  country         String?
+  subject         String?
+  message         String
+  type            String       @default("contact") // contact | demo | support | ai_assessment
+  status          String       @default("new") // new | contacted | resolved | spam
+  source          String?
+  ipAddress       String?
+  userAgent       String?
+  metadata        Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@map("contact_submissions")
+}
+
+model NewsletterSubscription {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  email           String
+  firstName       String?
+  lastName        String?
+  company         String?
+  status          String       @default("active") // active | unsubscribed | bounced
+  source          String?
+  preferences     Json?
+  confirmedAt     DateTime?
+  unsubscribedAt  DateTime?
+  metadata        Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([organization_id, email])
+  @@map("newsletter_subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// Social media management (Buffer/Hootsuite-style) — publishing goes through
+// Interactor Core (core.interactor.com): channels wrap Interactor credentials,
+// posts are executed via /api/v1/execute service actions.
+// ---------------------------------------------------------------------------
+
+model SocialChannel {
+  id               String             @id @default(cuid())
+  organization_id  String
+  organization     Organization       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  service_id       String // SKB service slug, e.g. "facebook-graph-api", "slack" — freeform for delivery_mode "manual" (no SKB adapter required)
+  service_name     String // display name, e.g. "Facebook Page"
+  // G#27: "automated" publishes through Interactor Core /execute (the
+  // existing flow); "manual" means no API access exists for this channel at
+  // all — e.g. a personal Facebook profile, which Meta's Graph API only lets
+  // you post to via a Page, never on a person's behalf. A manual channel has
+  // no credential_id/OAuth flow; a human pastes the copy on the real platform
+  // themselves from the awaiting_manual queue (src/lib/social/manual.ts) and
+  // records the permalink back via mark_social_post_posted. General on
+  // purpose — any service_id can be manual, not just Facebook.
+  delivery_mode    String             @default("automated") // automated | manual
+  // One OAuth connection can post to several places — three Facebook Pages,
+  // five Slack channels, two subreddits. Each place is its own row (a
+  // "destination"), and the rows of one connection share credential_id and
+  // external_user_id. That is why credential_id is indexed but NOT unique: it
+  // was unique when a connection could only ever mean one account.
+  credential_id    String? // Interactor credential id backing this channel
+  external_user_id String // Interactor external_user_id the credential is scoped to
+  account_name     String? // page name / handle / workspace
+  account_id       String? // provider-side id (e.g. Facebook page-id, Slack channel)
+  // Whether a post's social copy goes here unless the writer says otherwise
+  // for that post (Post.social_destinations).
+  default_target   Boolean            @default(true)
+  avatar_url       String?
+  status           String             @default("pending") // pending | active | expired | revoked | error
+  connected_by_id  String?
+  connected_by     User?              @relation("ChannelConnector", fields: [connected_by_id], references: [id])
+  metadata         Json?
+  inserted_at      DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+  targets          SocialPostTarget[]
+
+  @@index([credential_id])
+  @@index([organization_id, external_user_id])
+  @@map("social_channels")
+}
+
+// ---------------------------------------------------------------------------
+// Two-way git content sync (FILE-BASED-CONTENT-PLAN.md Phase 2) — same
+// pattern as SocialChannel: wraps an Interactor credential (hosted OAuth to
+// GitHub via the SKB), writes execute through /api/v1/execute. One active
+// connection per deployment for now (org-scoped multi-connection is a
+// follow-up once the Organization model lands).
+// ---------------------------------------------------------------------------
+
+model ContentSyncConnection {
+  id               String   @id @default(cuid())
+  service_id       String   @default("github") // SKB service slug
+  credential_id    String?  @unique // Interactor credential id backing this connection
+  external_user_id String // Interactor external_user_id the credential is scoped to
+  repo             String // "owner/repo"
+  branch           String   @default("main")
+  status           String   @default("pending") // pending | active | expired | revoked | error
+  connected_by_id  String?
+  connected_by     User?    @relation("ContentSyncConnector", fields: [connected_by_id], references: [id])
+  metadata         Json?
+  inserted_at      DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@map("content_sync_connections")
+}
+
+model SocialCampaign {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  name            String
+  color           String?
+  description     String?
+  recycle         Boolean      @default(false) // evergreen recycling (SocialBee-style)
+  posts           SocialPost[]
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@unique([organization_id, name])
+  @@map("social_campaigns")
+}
+
+model SocialPost {
+  id               String               @id @default(cuid())
+  organization_id  String
+  organization     Organization         @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  body             String               @default("")
+  link             String?
+  media            Json? // [{ media_id, url, type, alt }] — every item is a Media row in this org (src/lib/social/media.ts)
+  // What follows `body` (the root post), in order: `[{ kind: "thread" |
+  // "first_comment", body }]` — the X replies of a thread, then at most one
+  // first comment (src/lib/social/parts.ts). NULL = never set; copy written
+  // for X before this column existed is read through its `---` lines instead.
+  parts            Json?
+  status           String               @default("draft") // draft | pending_review | approved | rejected | scheduled | publishing | awaiting_manual | published | partially_published | failed | archived
+  rejection_reason String?
+  // AI fan-out provenance (CONTENT-AI-PLAN.md §6 / decision #4): the blog Post
+  // this copy was generated from, and the network the copy was written for
+  // (linkedin | twitter | facebook). Both null for hand-written posts.
+  source_post_id   String?
+  source_post      Post?                @relation("SocialPostSource", fields: [source_post_id], references: [id], onDelete: SetNull)
+  network          String?
+  scheduled_at     DateTime?
+  published_at     DateTime?
+  campaign_id      String?
+  campaign         SocialCampaign?      @relation(fields: [campaign_id], references: [id])
+  created_by_id    String?
+  created_by       User?                @relation("SocialPostAuthor", fields: [created_by_id], references: [id])
+  approved_by_id   String?
+  approved_by      User?                @relation("SocialPostApprover", fields: [approved_by_id], references: [id])
+  approved_at      DateTime?
+  targets          SocialPostTarget[]
+  approvals        SocialPostApproval[]
+  inserted_at      DateTime             @default(now())
+  updated_at       DateTime             @updatedAt
+
+  @@index([status, scheduled_at])
+  @@index([organization_id, status, scheduled_at])
+  @@map("social_posts")
+}
+
+model SocialPostTarget {
+  id               String        @id @default(cuid())
+  post_id          String
+  post             SocialPost    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  channel_id       String
+  channel          SocialChannel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  body_override    String? // per-network copy customization
+  // Per-channel media that replaces the post's `media` for this target only
+  // (punchlist S1), same item shape. NULL = publish the post's media; an
+  // empty array = no media on this channel.
+  media_override   Json?
+  status           String        @default("pending") // pending | publishing | awaiting_manual | published | failed | skipped
+  external_post_id String?
+  external_url     String?
+  error            String?
+  attempt_count    Int           @default(0)
+  // The earliest moment the scheduler may act on this row again. Meaning
+  // follows `status`: on a "pending" target it is when the next publish
+  // attempt is due (Core's own Retry-After when it sent one, otherwise our
+  // backoff); on a "publishing" target it is when the in-flight attempt's
+  // lease expires and the stale sweep may hand the row back to "pending".
+  // Null on a terminal row, and on every row written before this column
+  // existed. The scheduler reads null as "due now" on a "pending" target; on a
+  // "publishing" one it has no lease to read, so the stale sweep dates that
+  // row's lease from `updated_at` instead — which is how a target the old code
+  // stranded mid-flight still gets handed back.
+  //
+  // Deliberately its own column rather than `updated_at + f(attempt_count)`:
+  // updated_at moves for any unrelated write to the row, and only an explicit
+  // column can hold a delay Core supplied rather than one we guessed.
+  next_attempt_at  DateTime?
+  // Media this target has already uploaded to the network, so a retry (or an
+  // attempt resumed after a crash inside the publish lease) reuses them rather
+  // than uploading every image again: `{ "<network>:<step>:<account>:<media>":
+  // { "id": "<provider id>", "at": "<ISO time>" } }`. Written as each upload
+  // lands, reused while younger than the publisher's reuse window, cleared
+  // once the target publishes. NULL = nothing uploaded yet.
+  media_uploads    Json?
+  // Each part of the post this target has already published, by its place
+  // in the publish plan (0 = the root post, then each reply, then the first
+  // comment): `[{ kind, id, url?, at }]`. Written the moment a part lands, so
+  // a retry resumes after the last one instead of posting the root again.
+  // Kept after publishing as the record of where each part went.
+  published_parts  Json?
+  published_at     DateTime?
+  inserted_at      DateTime      @default(now())
+  updated_at       DateTime      @updatedAt
+
+  @@unique([post_id, channel_id])
+  @@map("social_post_targets")
+}
+
+model SocialPostApproval {
+  id          String     @id @default(cuid())
+  post_id     String
+  post        SocialPost @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  reviewer_id String?
+  reviewer    User?      @relation("SocialApprovalReviewer", fields: [reviewer_id], references: [id])
+  action      String // approved | rejected | requested_changes
+  comments    String?
+  reviewed_at DateTime   @default(now())
+  inserted_at DateTime   @default(now())
+
+  @@map("social_post_approvals")
+}
+
+model Waitlist {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  email           String       @unique
+  status          String       @default("pending") // pending | confirmed | invited | cancelled
+  source          String?
+  metadata        Json?
+  confirmedAt     DateTime?
+  invitedAt       DateTime?
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@map("waitlist")
+}
+
+// ---------------------------------------------------------------------------
+// AI content generation — writing-style learning (see CONTENT-AI-PLAN.md).
+// owner/requested_by are loose user-id strings (no FK) so profiles survive
+// user deletion and the shared User model stays untouched.
+
+model StyleProfile {
+  id              String                     @id @default(cuid())
+  organization_id String
+  organization    Organization               @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  name            String
+  scope           String                     @default("user") // user | org
+  owner_id        String? // local User id; null for org scope
+  status          String                     @default("draft") // draft | active | archived
+  samples         StyleSample[]
+  guides          StyleGuideVersion[]
+  generated_posts Post[]                     @relation("PostAiProfile")
+  suggestions     GuideAmendmentSuggestion[]
+  inserted_at     DateTime                   @default(now())
+  updated_at      DateTime                   @updatedAt
+
+  @@map("style_profiles")
+}
+
+model StyleSample {
+  id          String       @id @default(cuid())
+  profile_id  String
+  profile     StyleProfile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  source_type String // url | upload | post | text
+  source_ref  String? // url, filename, or post id
+  title       String?
+  text        String // extracted plain text
+  liked_notes String? // the user's "what I like about this" answers
+  inserted_at DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  @@map("style_samples")
+}
+
+model StyleGuideVersion {
+  id          String       @id @default(cuid())
+  profile_id  String
+  profile     StyleProfile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  version     Int
+  guide       String // distilled style guide (markdown, human-editable)
+  created_by  String // analysis | interview | edit-learning | manual
+  inserted_at DateTime     @default(now())
+
+  @@unique([profile_id, version])
+  @@map("style_guide_versions")
+}
+
+model GenerationJob {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  requested_by    String // local User id
+  profile_id      String?
+  source_type     String // post | url | upload | text
+  source_ref      String?
+  formats         String[]
+  mode            String       @default("create") // create | polish
+  status          String       @default("running") // running | done | failed
+  model           String
+  input_tokens    Int?
+  output_tokens   Int?
+  outputs         Json? // { blog: postId, linkedin: socialPostId, ... }
+  error           String?
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@map("generation_jobs")
+}
+
+// Continuous learning (Phase D, CONTENT-AI-PLAN.md §4 point 5): proposed the
+// moment a post with AI provenance is approved/published and its content
+// differs from the AI-generated baseline. Never applied automatically —
+// accepting one creates a new StyleGuideVersion (created_by: "edit-learning").
+model GuideAmendmentSuggestion {
+  id              String       @id @default(cuid())
+  profile_id      String
+  profile         StyleProfile @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  post_id         String?
+  post            Post?        @relation(fields: [post_id], references: [id], onDelete: SetNull)
+  diff_summary    String // human-readable summary of what the author changed
+  rationale       String // why this points to a durable style preference
+  suggested_guide String // full proposed next-version guide text (markdown)
+  status          String       @default("pending") // pending | accepted | rejected
+  inserted_at     DateTime     @default(now())
+  resolved_at     DateTime?
+
+  @@index([profile_id, status])
+  @@map("guide_amendment_suggestions")
+}
+
+// Feedback + bug reports from both CMS users and public website visitors.
+// source is authoritative server-side (never trusted from the client): a
+// submission counts as cms_user if the submitter is logged in, or (for
+// anonymous submissions) their given email matches an existing CMS user —
+// everyone else is website_visitor. Only bug_report + cms_user submissions
+// attempt to create a real Ticket in product-manager (see src/lib/product-manager.ts);
+// ticket_number/ticket_url/ticket_error are best-effort and never block
+// creation of this row.
+model Feedback {
+  id              String       @id @default(cuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  type            String       @default("feedback") // feedback | bug_report
+  source          String // cms_user | website_visitor
+  status          String       @default("open") // open | acknowledged | closed
+  title           String
+  body            String?
+  author_name     String?
+  author_email    String?
+  submitted_by_id String?
+  submitted_by    User?        @relation("FeedbackSubmitter", fields: [submitted_by_id], references: [id], onDelete: SetNull)
+  page_url        String?
+  user_agent      String?
+  screenshot_url  String?
+  metadata        Json?
+  ticket_number   Int?
+  ticket_url      String?
+  ticket_error    String?
+  inserted_at     DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@index([status])
+  @@index([submitted_by_id])
+  @@map("feedback_entries")
+}

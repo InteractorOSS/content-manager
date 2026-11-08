@@ -1,0 +1,28 @@
+{
+  "data": {
+    "data": [
+      {
+        "id": "744751622301298",
+        "name": "Interactor",
+        "instagram_business_account": { "id": "17841405822304914", "username": "interactor.hq" }
+      },
+      { "id": "102938475610293", "name": "Interactor Labs" },
+      {
+        "id": "556677889900112",
+        "name": "Interactor Events",
+        "instagram_business_account": { "id": "17841400000000001" }
+      },
+      {
+        "id": "667788990011223",
+        "name": "Interactor (EU)",
+        "instagram_business_account": { "id": "17841405822304914", "username": "interactor.hq" }
+      }
+    ],
+    "paging": { "cursors": { "before": "QVFIUm", "after": "QVFIUn" } }
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:04Z",
+    "latency_ms": 335
+  }
+}

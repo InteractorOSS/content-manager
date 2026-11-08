@@ -1,0 +1,16 @@
+{
+  "error": {
+    "code": "provider_forbidden",
+    "message": "The provider refused the request (HTTP 403): You are not allowed to create a Tweet with duplicate content.",
+    "provider": {
+      "status": 403,
+      "body": {
+        "detail": "You are not allowed to create a Tweet with duplicate content.",
+        "type": "about:blank",
+        "title": "Forbidden",
+        "status": 403
+      },
+      "retry_after_seconds": null
+    }
+  }
+}

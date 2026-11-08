@@ -1,0 +1,13 @@
+{
+  "data": {},
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:04Z",
+    "latency_ms": 520,
+    "response_headers": {
+      "X-RestLi-Id": "urn:li:share:7248123456789012345",
+      "x-linkedin-id": ["urn:li:share:7248123456789012345"],
+      "Content-Length": 0
+    }
+  }
+}

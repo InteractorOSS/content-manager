@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Interactor CMS Sync",
+  "version": "0.1.0",
+  "identifier": "com.interactor.cms-sync-tray",
+  "build": {},
+  "app": {
+    "windows": [],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "msi", "deb"],
+    "icon": ["icons/icon.png"]
+  }
+}

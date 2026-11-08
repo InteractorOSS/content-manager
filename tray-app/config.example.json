@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to ~/.config/interactor-cms-sync/config.json (or the OS-equivalent path — see src-tauri/src/main.rs's dirs_config_dir) and fill in cms_repo_path.",
+  "cms_repo_path": "/absolute/path/to/content-management",
+  "sync_folder": "content/posts"
+}

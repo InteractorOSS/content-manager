@@ -1,0 +1,18 @@
+{
+  "data": {
+    "data": {
+      "id": "1843219876543210989",
+      "text": "Third tweet of the thread",
+      "edit_history_tweet_ids": ["1843219876543210989"]
+    }
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:06Z",
+    "latency_ms": 391,
+    "response_headers": {
+      "content-type": "application/json; charset=utf-8",
+      "x-rate-limit-remaining": "97"
+    }
+  }
+}

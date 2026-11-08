@@ -1,0 +1,10 @@
+{
+  "id": "interactor-cms-sync",
+  "name": "Interactor CMS Sync",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Two-way sync between this vault and Interactor CMS posts (Markdown + frontmatter). See FILE-BASED-CONTENT-PLAN.md Phase 3.",
+  "author": "Interactor",
+  "authorUrl": "https://interactor.com",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,9 @@
+{
+  "data": {},
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-07T09:00:03Z",
+    "latency_ms": 300,
+    "response_headers": { "Content-Length": "0" }
+  }
+}

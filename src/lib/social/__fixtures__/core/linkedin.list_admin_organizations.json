@@ -1,0 +1,25 @@
+{
+  "data": {
+    "paging": { "count": 10, "start": 0, "links": [] },
+    "elements": [
+      {
+        "role": "ADMINISTRATOR",
+        "state": "APPROVED",
+        "roleAssignee": "urn:li:person:782bbtaQ",
+        "organization": "urn:li:organization:90210457",
+        "organization~": { "localizedName": "Interactor" }
+      },
+      {
+        "role": "ADMINISTRATOR",
+        "state": "APPROVED",
+        "roleAssignee": "urn:li:person:782bbtaQ",
+        "organization": "urn:li:organization:11223344"
+      }
+    ]
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:03Z",
+    "latency_ms": 287
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "data": {
+    "data": {
+      "id": "1843219876543210987",
+      "text": "Ship it\nhttps://interactor.com/blog/ship-it",
+      "edit_history_tweet_ids": ["1843219876543210987"]
+    }
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:03Z",
+    "latency_ms": 401,
+    "response_headers": {
+      "content-type": "application/json; charset=utf-8",
+      "x-rate-limit-remaining": "99"
+    }
+  }
+}

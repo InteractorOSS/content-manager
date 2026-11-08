@@ -1,0 +1,15 @@
+{
+  "data": {
+    "ok": true,
+    "channels": [
+      { "id": "C0123ANNOUNCE", "name": "announcements", "is_channel": true, "is_archived": false },
+      { "id": "C0456LAUNCHES", "name": "launches", "is_channel": true, "is_archived": false }
+    ],
+    "response_metadata": { "next_cursor": "" }
+  },
+  "metadata": {
+    "execution_type": "service_action",
+    "executed_at": "2026-10-06T09:00:01Z",
+    "latency_ms": 188
+  }
+}

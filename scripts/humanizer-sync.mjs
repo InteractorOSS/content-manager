@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+// Keeps the vendored Humanizer skill (https://github.com/blader/humanizer, MIT)
+// in step with upstream. Every place the CMS asks a model to write prose reads
+// it from src/lib/humanizer (see that module's comment), so this is the only
+// thing that ever changes those rules.
+//
+//   node scripts/humanizer-sync.mjs --check   report whether upstream changed (exit 10 if so)
+//   node scripts/humanizer-sync.mjs           vendor upstream's current SKILL.md
+//   node scripts/humanizer-sync.mjs --ref <sha|branch|tag>
+//
+// Compared by the SKILL.md content hash, not the commit: upstream commits that
+// only touch its README or CI are not an update. Set GITHUB_TOKEN to lift the
+// GitHub API's anonymous rate limit. Dependency-free on purpose (runs in CI
+// before `npm ci`).
+
+import { createHash } from "node:crypto";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO = "blader/humanizer";
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const DIR = join(ROOT, "src/lib/humanizer");
+const UPSTREAM_JSON = join(DIR, "upstream.json");
+const SKILL_TS = join(DIR, "skill.generated.ts");
+const LICENSE_FILE = join(DIR, "LICENSE");
+
+const args = process.argv.slice(2);
+const check = args.includes("--check");
+const refIdx = args.indexOf("--ref");
+const ref = refIdx >= 0 ? args[refIdx + 1] : "HEAD";
+
+async function get(url, accept) {
+  const headers = { "User-Agent": "interactor-cms-humanizer-sync", Accept: accept };
+  if (process.env.GITHUB_TOKEN && url.startsWith("https://api.github.com/")) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`${url} answered ${res.status} ${res.statusText}`);
+  return res;
+}
+
+const raw = async (sha, path) =>
+  (await get(`https://raw.githubusercontent.com/${REPO}/${sha}/${path}`, "text/plain")).text();
+
+/** Refuse anything that doesn't look like the skill, before it reaches a prompt. */
+export function validateSkill(md) {
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(md);
+  if (!fm) throw new Error("SKILL.md has no YAML frontmatter");
+  const version = /^\s+version:\s*"?([^"\n]+)"?\s*$/m.exec(fm[1])?.[1];
+  if (!version) throw new Error("SKILL.md frontmatter has no metadata.version");
+  const patterns = md.match(/^### \d+\. .+$/gm) ?? [];
+  if (patterns.length < 10) throw new Error(`SKILL.md has only ${patterns.length} numbered patterns`);
+  if (md.length > 80_000) throw new Error(`SKILL.md is ${md.length} characters; expected under 80,000`);
+  return { version, patternCount: patterns.length };
+}
+
+/** CHANGELOG sections newer than `fromVersion` (the whole top one if unknown). */
+function changesSince(changelog, fromVersion) {
+  const sections = changelog.split(/^(?=## )/m).filter((s) => s.startsWith("## "));
+  const out = [];
+  for (const s of sections) {
+    if (fromVersion && s.startsWith(`## ${fromVersion}`)) break;
+    out.push(s.trim());
+    if (!fromVersion) break;
+  }
+  return out.join("\n\n");
+}
+
+function output(name, value) {
+  if (!process.env.GITHUB_OUTPUT) return;
+  appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<__EOF__\n${value}\n__EOF__\n`);
+}
+
+async function main() {
+  const current = existsSync(UPSTREAM_JSON) ? JSON.parse(readFileSync(UPSTREAM_JSON, "utf8")) : null;
+  const commit = await (await get(`https://api.github.com/repos/${REPO}/commits/${ref}`, "application/vnd.github+json")).json();
+  const sha = commit.sha;
+  const skill = await raw(sha, "SKILL.md");
+  const { version, patternCount } = validateSkill(skill);
+  const skillSha256 = createHash("sha256").update(skill).digest("hex");
+  const changed = current?.skill_sha256 !== skillSha256;
+  const changes = changed ? changesSince(await raw(sha, "CHANGELOG.md").catch(() => ""), current?.version) : "";
+
+  output("changed", String(changed));
+  output("version", version);
+  output("previous_version", current?.version ?? "none");
+  output("commit", sha);
+  output("changes", changes);
+
+  if (!changed) {
+    console.log(`Humanizer is up to date: v${version} (${REPO}@${sha.slice(0, 7)}).`);
+    return;
+  }
+  console.log(`Humanizer update: v${current?.version ?? "none"} -> v${version} (${REPO}@${sha.slice(0, 7)}, ${patternCount} patterns).`);
+  if (changes) console.log(`\n${changes}\n`);
+  if (check) process.exit(10);
+
+  const license = await raw(sha, "LICENSE");
+  mkdirSync(DIR, { recursive: true });
+  writeFileSync(LICENSE_FILE, license);
+  writeFileSync(
+    UPSTREAM_JSON,
+    JSON.stringify(
+      { repo: REPO, commit: sha, version, pattern_count: patternCount, skill_sha256: skillSha256, synced_at: new Date().toISOString() },
+      null,
+      2
+    ) + "\n"
+  );
+  const licenseComment = license.trim().split("\n").map((l) => ` * ${l}`.trimEnd()).join("\n");
+  writeFileSync(
+    SKILL_TS,
+    `// GENERATED by scripts/humanizer-sync.mjs from ${REPO}@${sha} (v${version}).\n` +
+      `// Do not edit by hand: run \`npm run humanizer:sync\`. Read it through src/lib/humanizer.\n` +
+      `/*\n * Humanizer SKILL.md, https://github.com/${REPO}\n *\n${licenseComment}\n */\n` +
+      `export const HUMANIZER_SKILL_MD: string =\n  ${JSON.stringify(skill)};\n`
+  );
+  console.log(`Wrote ${SKILL_TS.replace(ROOT + "/", "")}, upstream.json and LICENSE.`);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(`humanizer-sync: ${err.message}`);
+    process.exit(1);
+  });
+}
