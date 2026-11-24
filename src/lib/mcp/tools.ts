@@ -29,6 +29,7 @@ import { GET as checkPostSeoRoute } from "@/app/api/cms/posts/[id]/seo-check/rou
 import { POST as generateFeaturedImageRoute } from "@/app/api/cms/posts/[id]/featured-image/route";
 import { POST as openForEditingRoute } from "@/app/api/cms/posts/[id]/edit-session/route";
 import { POST as openPostListRoute } from "@/app/api/cms/writer-list/route";
+import { POST as openMirrorRoute } from "@/app/api/cms/writer-mirror/route";
 import { GET as listTrashRoute } from "@/app/api/cms/posts/trash/route";
 import { POST as restoreTrashRoute } from "@/app/api/cms/posts/trash/[id]/restore/route";
 import { GET as listPostSocialRoute, PUT as savePostSocialRoute } from "@/app/api/cms/posts/[id]/social/route";
@@ -796,6 +797,26 @@ export const CMS_TOOLS: CmsTool[] = [
           method: "POST",
           path: "/api/cms/writer-list",
           body: { site, search },
+        })
+      )
+  ),
+
+  defineTool(
+    "open_mirror",
+    {
+      description:
+        "Start the Interactor CMS plugin's local posts folder (its mirror) for this workspace: returns mirror_key and mirror_url for the plugin's scripts/mirror.mjs, which keeps every post of the workspace's site as a Markdown file in the folder's posts folder, in two-way sync. Call it once per session in a bound folder and pass the key only to that script, as CMS_MIRROR_KEY in its environment; never show it in chat or write it to a file. The key reads and saves this workspace's posts' files only (never creates, deletes or changes a post's status), ends with the connection, and expires in 8 hours.",
+      inputSchema: z.object({
+        site: z.string().optional().describe("A site slug; defaults to the workspace's site. Omit both to mirror every site in scope."),
+      }),
+      annotations: { readOnlyHint: false },
+    },
+    async ({ site }, extra) =>
+      toToolResult(
+        await delegateToRoute(openMirrorRoute, tokenOf(extra), {
+          method: "POST",
+          path: "/api/cms/writer-mirror",
+          body: { site },
         })
       )
   ),

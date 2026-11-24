@@ -30,14 +30,45 @@ export function sessionEnded(): NextResponse {
   );
 }
 
-async function loadPost(auth: EditKeyAuth) {
-  return auth.db.post.findUnique({
-    where: { id: auth.key.post_id },
+async function loadPostById(db: EditKeyAuth["db"], id: string) {
+  return db.post.findUnique({
+    where: { id },
     include: { category: { select: { slug: true } } },
   });
 }
 
+async function loadPost(auth: EditKeyAuth) {
+  return loadPostById(auth.db, auth.key.post_id);
+}
+
+export { loadPostById };
+
 export type EditPost = NonNullable<Awaited<ReturnType<typeof loadPost>>>;
+
+/**
+ * Who saves, for saveEdit(): an edit key's session, or the mirror (one key for
+ * a whole workspace, src/app/api/edit/mirror). `last_write_at` drives revision
+ * checkpoints; `markWritten` records a save (an edit key stamps its own row;
+ * the mirror has no per-post row and passes a no-op, using the post's own
+ * previous updated_at as its pause marker instead).
+ */
+export type SaveSession = {
+  actor: EditKeyAuth["actor"];
+  db: EditKeyAuth["db"];
+  site_scopes: string[];
+  last_write_at: Date | null;
+  markWritten: (now: Date) => Promise<unknown>;
+};
+
+export function editKeySaveSession(auth: EditKeyAuth): SaveSession {
+  return {
+    actor: auth.actor,
+    db: auth.db,
+    site_scopes: auth.key.site_scopes,
+    last_write_at: auth.key.last_write_at,
+    markWritten: (now) => prisma.postEditKey.update({ where: { id: auth.key.id }, data: { last_write_at: now } }),
+  };
+}
 
 /** Resolve the key, check the permission, and load the key's post. */
 export async function authorizeEdit(
@@ -77,10 +108,11 @@ function conflict(version: string): NextResponse {
  */
 export async function saveEdit(
   req: NextRequest,
-  auth: EditKeyAuth,
+  who: EditKeyAuth | SaveSession,
   post: EditPost,
   raw: string
 ): Promise<{ saved: EditPost; warning?: string; error?: never } | { error: NextResponse }> {
+  const auth = "markWritten" in who ? who : editKeySaveSession(who);
   const expected = versionFromHeader(req.headers.get("if-match"));
   if (!expected) {
     return {
@@ -103,8 +135,8 @@ export async function saveEdit(
     actor: auth.actor,
     db: auth.db,
     onConflict: "reject",
-    siteScope: auth.key.site_scopes,
-    revision: { snapshot: writingSaveCheckpoints(auth.key.last_write_at, now), source: "writing" },
+    siteScope: auth.site_scopes,
+    revision: { snapshot: writingSaveCheckpoints(auth.last_write_at, now), source: "writing" },
   });
 
   switch (result.kind) {
@@ -117,12 +149,12 @@ export async function saveEdit(
       };
     case "conflict": {
       // Lost the race between the version check above and the write.
-      const latest = await loadPost(auth);
+      const latest = await loadPostById(auth.db, post.id);
       return { error: conflict(latest ? editFileVersion(latest) : current) };
     }
     case "applied": {
-      await prisma.postEditKey.update({ where: { id: auth.key.id }, data: { last_write_at: now } });
-      const saved = await loadPost(auth);
+      await auth.markWritten(now);
+      const saved = await loadPostById(auth.db, post.id);
       if (!saved) return { error: NextResponse.json({ error: "This post no longer exists." }, { status: 404 }) };
       return { saved, warning: result.warning };
     }

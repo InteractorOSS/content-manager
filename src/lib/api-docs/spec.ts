@@ -1708,6 +1708,42 @@ const POSTS_ENDPOINTS: DocEndpoint[] = [
   },
   {
     method: "POST",
+    path: "/api/cms/writer-mirror",
+    routeFile: "src/app/api/cms/writer-mirror/route.ts",
+    group: "Posts",
+    summary: "Start the local posts folder mirror (Interactor CMS plugin)",
+    description:
+      "Backs the `open_mirror` MCP tool. Returns a mirror key for the plugin's local posts folder: it lists this workspace's posts (the workspace's site, or `site`, within the token's site scope) and reads and saves their Markdown files through the plugin's private `/api/edit/mirror/*` protocol, under the same checks as editing the post. It never creates or deletes a post or changes its status. It expires in 8 hours, ends when the minting token is revoked, and replaces the caller's previous mirror key for the same site.",
+    auth: "pat-or-session",
+    permission: "content:view",
+    body: { type: "object", properties: { site: { type: "string" } } },
+    responses: [
+      { status: 200, description: "The workspace, `mirror_key`, `mirror_url`, the site and the key's expiry." },
+      { status: 400, description: "Unknown site." },
+      { status: 403, description: "The site is outside the token's site scope." },
+    ],
+    examples: [
+      {
+        title: "Start the mirror for one site",
+        curl: "curl -X POST \"https://cms.interactor.com/api/cms/writer-mirror\" -H \"Authorization: Bearer cms_pat_...\" -H \"Content-Type: application/json\" -d '{\"site\":\"website\"}'",
+        response: {
+          status: 200,
+          body: {
+            data: {
+              workspace: "writer@example.com/acme/website",
+              mirror_key: "cms_mirror_...",
+              mirror_url: "https://cms.interactor.com/api/edit/mirror",
+              site: "website",
+              can_edit: true,
+              expires_at: "2026-11-24T08:00:00.000Z",
+            },
+          },
+        },
+      },
+    ],
+  },
+  {
+    method: "POST",
     path: "/api/cms/posts/{id}/edit-session",
     routeFile: "src/app/api/cms/posts/[id]/edit-session/route.ts",
     group: "Posts",
@@ -2937,7 +2973,7 @@ export const UNDOCUMENTED: UndocumentedEntry[] = [
   { pathPrefix: "/api/build-feedback/", reason: "Server-side proxy to the Interactor Build feedback widget, scoped to the signed-in CMS session." },
   { pathPrefix: "/api/content-sync/", reason: "GitHub OAuth connect flow for the file-based content-sync feature; session-only CMS UI plumbing." },
   { pathPrefix: "/api/oauth/", reason: "OAuth 2.1 protocol endpoints for the MCP connector (register/token/revoke, plus the consent form's submit). Clients discover them from /.well-known/oauth-authorization-server (RFC 8414), not from this spec." },
-  { pathPrefix: "/api/edit/", reason: "Private protocol between the CMS and the Interactor CMS plugin's sync tool, authenticated only by a one-post edit key from open_for_editing — not a general integration surface." },
+  { pathPrefix: "/api/edit/", reason: "Private protocol between the CMS and the Interactor CMS plugin's sync tools, authenticated only by a one-post edit key from open_for_editing, a list key from open_post_list, or a workspace mirror key from open_mirror — not a general integration surface." },
   { pathPrefix: "/api/webhooks/", reason: "Inbound webhooks verified by provider signature (Interactor Core, GitHub), not caller-initiated integration endpoints." },
   { path: "/api/contacts", method: "GET", reason: "Session-only admin review of submissions; only the public POST is documented above." },
   { pathPrefix: "/api/contacts/", reason: "Session-only admin review of one submission (view/delete); only the public POST /api/contacts is documented above." },

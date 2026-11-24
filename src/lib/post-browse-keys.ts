@@ -28,8 +28,26 @@ import { tenantDb, type TenantDb } from "@/lib/tenant-db";
 export const BROWSE_KEY_PREFIX = "cms_list_";
 export const BROWSE_KEY_TTL_MS = 8 * 60 * 60 * 1000;
 
+// Mirror keys — the credential behind the plugin's local posts folder
+// (scripts/mirror.mjs, minted by the `open_mirror` MCP tool). Same table,
+// same limits and lifetime as a list key, with `purpose: "mirror"` and its own
+// prefix, so a list key can never act as a mirror key or the reverse. What
+// one adds over a list key: reading any post's file in its workspace and
+// saving it back (/api/edit/mirror/*), under the same checks an edit key's
+// save gets (src/lib/edit-session.ts) — never creating, deleting, or
+// changing a post's status.
+export const MIRROR_KEY_PREFIX = "cms_mirror_";
+
+export type BrowseKeyPurpose = "list" | "mirror";
+
+const PREFIX: Record<BrowseKeyPurpose, string> = { list: BROWSE_KEY_PREFIX, mirror: MIRROR_KEY_PREFIX };
+
 export function looksLikeBrowseKey(value: string): boolean {
   return value.startsWith(BROWSE_KEY_PREFIX);
+}
+
+export function looksLikeMirrorKey(value: string): boolean {
+  return value.startsWith(MIRROR_KEY_PREFIX);
 }
 
 /** Mint a list key; the same person's earlier list key through the same
@@ -43,10 +61,13 @@ export async function mintBrowseKey(input: {
   siteScopes: string[];
   site: string | null;
   replacePrevious?: boolean;
+  /** Default "list". Only an earlier key of the same purpose is replaced. */
+  purpose?: BrowseKeyPurpose;
   now?: number;
 }): Promise<{ key: string; expiresAt: Date }> {
   const now = input.now ?? Date.now();
-  const key = `${BROWSE_KEY_PREFIX}${randomBytes(24).toString("base64url")}`;
+  const purpose = input.purpose ?? "list";
+  const key = `${PREFIX[purpose]}${randomBytes(24).toString("base64url")}`;
   const expiresAt = new Date(now + BROWSE_KEY_TTL_MS);
   await prisma.$transaction([
     ...(input.replacePrevious === false
@@ -57,6 +78,10 @@ export async function mintBrowseKey(input: {
               user_id: input.userId,
               organization_id: input.organizationId,
               api_token_id: input.apiTokenId,
+              purpose,
+              // A mirror key is per site: mirroring one site must not end the
+              // mirror of another site in the same organization.
+              ...(purpose === "mirror" && { site: input.site }),
               revoked_at: null,
             },
             data: { revoked_at: new Date(now) },
@@ -69,6 +94,7 @@ export async function mintBrowseKey(input: {
         api_token_id: input.apiTokenId,
         site_scopes: input.siteScopes,
         site: input.site,
+        purpose,
         key_hash: hashToken(key),
         expires_at: expiresAt,
       },
@@ -84,13 +110,19 @@ export type BrowseKeyAuth = {
 };
 
 /** A live browse key's owner, organization and limits, or null. */
-export async function resolveBrowseKey(raw: string, now: Date = new Date()): Promise<BrowseKeyAuth | null> {
-  if (!looksLikeBrowseKey(raw)) return null;
+export async function resolveBrowseKey(
+  raw: string,
+  now: Date = new Date(),
+  purpose: BrowseKeyPurpose = "list"
+): Promise<BrowseKeyAuth | null> {
+  if (!raw.startsWith(PREFIX[purpose])) return null;
   const key = await prisma.postBrowseKey.findUnique({
     where: { key_hash: hashToken(raw) },
     include: { api_token: { select: { revoked_at: true } } },
   });
   if (!key || key.revoked_at || key.expires_at <= now) return null;
+  // Belt and braces: the prefix already says the purpose, but the row decides.
+  if ((key.purpose ?? "list") !== purpose) return null;
   if (key.api_token && key.api_token.revoked_at) return null;
 
   const actor = await loadActor({ id: key.user_id }, { forceOrganizationId: key.organization_id });
@@ -110,8 +142,19 @@ export async function resolveBrowseKey(raw: string, now: Date = new Date()): Pro
   };
 }
 
-export async function browseKeyFromRequest(req: NextRequest): Promise<BrowseKeyAuth | null> {
+function bearer(req: NextRequest): string | null {
   const header = req.headers.get("authorization");
   if (!header || !/^bearer /i.test(header)) return null;
-  return resolveBrowseKey(header.slice("bearer ".length).trim());
+  return header.slice("bearer ".length).trim();
+}
+
+export async function browseKeyFromRequest(req: NextRequest): Promise<BrowseKeyAuth | null> {
+  const raw = bearer(req);
+  return raw ? resolveBrowseKey(raw) : null;
+}
+
+/** A live mirror key (cms_mirror_) from the request, or null. */
+export async function mirrorKeyFromRequest(req: NextRequest): Promise<BrowseKeyAuth | null> {
+  const raw = bearer(req);
+  return raw ? resolveBrowseKey(raw, new Date(), "mirror") : null;
 }
