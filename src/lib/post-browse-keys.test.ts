@@ -7,7 +7,7 @@ vi.mock("@/lib/tenant-db", () => ({ tenantDb: (org: string) => ({ org }) }));
 
 import { looksLikeApiToken } from "@/lib/api-tokens";
 import { looksLikeEditKey } from "@/lib/post-edit-keys";
-import { looksLikeBrowseKey, resolveBrowseKey } from "./post-browse-keys";
+import { looksLikeBrowseKey, looksLikeMirrorKey, resolveBrowseKey } from "./post-browse-keys";
 
 const now = new Date("2026-09-24T12:00:00Z");
 const live = {
@@ -17,6 +17,7 @@ const live = {
   api_token_id: "tok",
   site_scopes: [],
   site: "acme-site",
+  purpose: "list",
   revoked_at: null,
   expires_at: new Date("2026-09-24T13:00:00Z"),
   api_token: { revoked_at: null },
@@ -54,5 +55,26 @@ describe("browse keys", () => {
     findUnique.mockResolvedValue(live);
     loadActor.mockResolvedValue({ organizationId: "another-org", user: { id: "u1" } });
     expect(await resolveBrowseKey("cms_list_x", now)).toBeNull();
+  });
+});
+
+describe("mirror keys", () => {
+  it("have their own prefix, accepted nowhere a token, edit key or list key is", () => {
+    expect(looksLikeMirrorKey("cms_mirror_abc")).toBe(true);
+    expect(looksLikeBrowseKey("cms_mirror_abc")).toBe(false);
+    expect(looksLikeApiToken("cms_mirror_abc")).toBe(false);
+    expect(looksLikeEditKey("cms_mirror_abc")).toBe(false);
+  });
+
+  it("resolve only as a mirror, and a list key never does", async () => {
+    findUnique.mockResolvedValue({ ...live, purpose: "mirror" });
+    expect((await resolveBrowseKey("cms_mirror_x", now, "mirror"))?.key.site).toBe("acme-site");
+    expect(await resolveBrowseKey("cms_mirror_x", now)).toBeNull();
+    expect(await resolveBrowseKey("cms_list_x", now, "mirror")).toBeNull();
+  });
+
+  it("are refused when the row's purpose disagrees with the prefix", async () => {
+    findUnique.mockResolvedValue(live); // a list row
+    expect(await resolveBrowseKey("cms_mirror_x", now, "mirror")).toBeNull();
   });
 });

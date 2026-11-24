@@ -485,6 +485,10 @@ model PostBrowseKey {
   site_scopes     String[]     @default([])
   // The site the list shows (a folder's binding); null = every site in scope.
   site            String?
+  // "list": the writer's post list (open_post_list, cms_list_ keys).
+  // "mirror": the plugin's local folder mirror (open_mirror, cms_mirror_
+  // keys). A new key only replaces an older one of the same purpose.
+  purpose         String       @default("list")
   key_hash        String       @unique
   expires_at      DateTime
   revoked_at      DateTime?
